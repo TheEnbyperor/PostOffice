@@ -3,7 +3,10 @@ import time
 import os
 import socket
 import gnupg
+import io
+import typing
 from daemonize import Daemonize
+from PIL import Image
 import cups
 
 CONNECTION_LIMIT = 20
@@ -63,18 +66,34 @@ def check_rate_limit(connection_ip):
 
     return True
 
-def write_file(string, ip_addr, date):
-    '''Saves the passed string to a file.
-    File name is: <ip_addrv4>_<d/m/Y>
-    Return filename.
-    '''
-    folder = "logs/"
-    filename = folder + str(ip_addr)+"_"+str(date)
-    with open(filename, "w+") as message_file:
-        message_file.write("------------\n"+ip_addr+"\n"+date+"\n------------\n")
-        message_file.write(string)
-        message_file.write("\n------------")
 
+def write_file(string: str, ip_addr: str, date: str) -> str:
+    """
+    Wrapper around write_file_binary to handle strings
+    :param string: The string to write
+    :param ip_addr: The IP of the client
+    :param date: Date the message was sent
+    :return Filename written to
+    """
+    data = bytearray(b"------------\n" + ip_addr.encode() + b"\n" + date.encode() + b"\n------------\n")
+    data.extend(string.encode())
+    data.extend(b"\n------------")
+    return write_file_binary(string.encode(), ip_addr, date)
+
+
+def write_file_binary(data: bytes, ip_addr: str, date: str) -> str:
+    """
+    Saves the binary data to a file.
+    File name is: <ip_addrv4>_<d/m/Y>
+    :param data: The data to write
+    :param ip_addr: The IP of the client
+    :param date: Date the message was sent
+    :return Filename written to
+    """
+    folder = "logs/"
+    filename = folder + str(ip_addr) + "_" + str(date)
+    with open(filename, "wb+") as message_file:
+        message_file.write(data)
     return filename
 
 def print_file(filename):
@@ -96,10 +115,31 @@ def parse_string(string):
 
     return string
 
+def handle_image(data: bytes) -> typing.Union[None, bytes]:
+    """
+    Attempts to parse an image using Pillow
+    :param data: Raw image binary data
+    :return: Image data in JPEG format if the data was handled, None if not
+    """
+    try:
+        # One of these two calls will raise an IOError if the data isn't an image
+        im = Image.open(io.BytesIO(data))
+        im.load()
+
+        output = io.BytesIO()
+        im.save(output, format='jpeg')
+
+        return output.getvalue()
+    except IOError:
+        return None
+
+
 def await_connections():
-    '''Await connections from the outside
+    """
+    Await connections from the outside
     and take all actions necessary to print
-    our content '''
+    our content
+    """
     #Uncomment the below to accept non-localhost connections
     #IP = "0.0.0.0"
     IP = "127.0.0.1"
@@ -110,25 +150,30 @@ def await_connections():
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.bind((IP, PORT))
 
-    while True:
-        sock.listen(1)
+    try:
+        while True:
+            sock.listen(1)
 
-        conn, addr = sock.accept()
+            conn, addr = sock.accept()
 
-        if check_rate_limit(addr[0]):
-            data = conn.recv(buffer_size)
+            if check_rate_limit(addr[0]):
+                data = conn.recv(buffer_size)
 
-            filename = write_file(parse_string(data.decode()), addr[0], time.strftime("%d-%m-%Y-%H-%M%p"))
+                image_data = handle_image(data)
+                if image_data is not None:
+                    filename = write_file_binary(image_data, addr[0], time.strftime("%d-%m-%Y-%H-%M%p"))
+                else:
+                    filename = write_file(parse_string(data.decode()), addr[0], time.strftime("%d-%m-%Y-%H-%M%p"))
 
-            print_file(filename)
+                print_file(filename)
 
-            conn.send(b"OK")
+                conn.send(b"OK")
+                conn.close()
+            else:
 
-            conn.close()
-
-        else:
-
-            conn.close()
+                conn.close()
+    except (KeyboardInterrupt, SystemExit):
+        sock.close()
 
 
 if __name__ == "__main__":
