@@ -13,14 +13,16 @@ CUPS_CONNECTION = cups.Connection()
 PASSPHRASE = sys.stdin.readline()
 
 def check_rate_limit(connection_ip):
-    '''Checks previous connections and rejects this one if connected too over
+    """
+    Checks previous connections and rejects this one if connected too over
     some number of times today.
     Returns True if connection allowed, false if not.
 
     Delete last line: https://stackoverflow.com/a/10289740
-    '''
-    #TODO have one variable with the date/time string and use that instead of
-    #multiple calls to strftime
+    """
+    # TODO have one variable with the date/time string and use that instead of
+    # multiple calls to strftime
+    formatted_time = time.strftime("%Y-%m-%dT%H:%M:%S")
 
     try:
         rate_limit_file = open(connection_ip+".rate", "r+")
@@ -32,7 +34,7 @@ def check_rate_limit(connection_ip):
     for last in rate_limit_file:
         pass
 
-    if last.split(" ")[0] == time.strftime("%d/%m/%Y"):
+    if last.split(" ")[0] == formatted_time:
         #Check the existing value for today
         if int(last.split(" ")[1]) >= CONNECTION_LIMIT:
             #Return false if we've exceeded the limit
@@ -51,13 +53,13 @@ def check_rate_limit(connection_ip):
                 rate_limit_file.seek(pos, os.SEEK_SET)
                 rate_limit_file.truncate()
 
-            rate_limit_file.write("\n"+time.strftime("%d/%m/%Y")+" "+str(previous_val+1))
-    elif last.split(" ")[0] != time.strftime("%d/%m/%Y"):
+            rate_limit_file.write("\n"+formatted_time+" "+str(previous_val+1))
+    elif last.split(" ")[0] !=formatted_time:
         #Add a new date if it doesnt exist yet.
         rate_limit_file.close()
         rate_limit_file = open(connection_ip+".rate", "a")
 
-        rate_limit_file.writelines(time.strftime("%d/%m/%Y")+" "+str(1)+"\n")
+        rate_limit_file.writelines(formatted_time+" "+str(1)+"\n")
 
     rate_limit_file.close()
 
@@ -118,16 +120,13 @@ def await_connections():
         if check_rate_limit(addr[0]):
             data = conn.recv(buffer_size)
 
-            filename = write_file(parse_string(data.decode()), addr[0], time.strftime("%d-%m-%Y-%H-%M%p"))
-
+            formatted_time = time.strftime("%Y-%m-%dT%H:%M:%S")
+            filename = write_file(parse_string(data.decode()), addr[0], formatted_time)
             print_file(filename)
 
             conn.send(b"OK")
-
             conn.close()
-
         else:
-
             conn.close()
 
 
