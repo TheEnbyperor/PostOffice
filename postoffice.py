@@ -74,8 +74,11 @@ def write_file(string, ip_addr, date):
     File name is: <ip_addrv4>_<d/m/Y>
     Return filename.
     '''
-    folder = "logs/"
-    filename = folder + str(ip_addr)+"_"+str(date)
+    log_dir = "logs"
+    os.makedirs(log_dir, exist_ok=True)
+
+    filename = os.path.join(log_dir, ip_addr + "_" + date)
+
     with open(filename, "w+") as message_file:
         message_file.write("------------\n"+ip_addr+"\n"+date+"\n------------\n")
         message_file.write(string)
@@ -127,9 +130,18 @@ def await_connections():
         conn, addr = sock.accept()
 
         if check_rate_limit(addr[0]):
-            data = conn.recv(buffer_size)
+            received_bytes = conn.recv(buffer_size)
 
-            filename = write_file(parse_string(data.decode()), addr[0], time.strftime("%d-%m-%Y-%H-%M%p"))
+            # If we can't decode whatever the user has sent us, we should close
+            # the connection immediately.  Don't just error out here.
+            try:
+                received_string = received_bytes.decode("utf-8")
+            except UnicodeDecodeError as err:
+                print("Error decoding received bytes %r (%s)" % (received_bytes, err))
+                conn.close()
+                continue
+
+            filename = write_file(parse_string(received_string), addr[0], time.strftime("%d-%m-%Y-%H-%M%p"))
 
             print_file(filename)
 
