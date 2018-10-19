@@ -15,6 +15,8 @@ CUPS_CONNECTION = cups.Connection()
 
 PASSPHRASE = sys.stdin.readline()
 
+SUPPORTED_IMAGE_FORMATS = ['BMP', 'GIF', 'ICO', 'JPEG', 'PNG', 'TIFF', 'WebP']
+
 def check_rate_limit(connection_ip):
     '''Checks previous connections and rejects this one if connected too over
     some number of times today.
@@ -125,6 +127,9 @@ def handle_image(data: bytes) -> typing.Union[None, bytes]:
         # One of these two calls will raise an IOError if the data isn't an image
         im = Image.open(io.BytesIO(data))
         im.load()
+
+        if im.format not in SUPPORTED_IMAGE_FORMATS:
+            raise IOError
 
         output = io.BytesIO()
         im.save(output, format='jpeg')
