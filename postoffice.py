@@ -8,7 +8,13 @@ import cups
 
 CONNECTION_LIMIT = 20
 
-CUPS_CONNECTION = cups.Connection()
+try:
+    CUPS_CONNECTION = cups.Connection()
+except RuntimeError as e:
+    print(str(e))
+    print("Cups connection will be mocked.")
+    CUPS_CONNECTION = None
+
 
 PASSPHRASE = sys.stdin.readline()
 
@@ -70,8 +76,11 @@ def write_file(string, ip_addr, date):
     File name is: <ip_addrv4>_<d/m/Y>
     Return filename.
     '''
-    folder = "logs/"
-    filename = folder + str(ip_addr)+"_"+str(date)
+    log_dir = "logs"
+    os.makedirs(log_dir, exist_ok=True)
+
+    filename = os.path.join(log_dir, ip_addr + "_" + date)
+
     with open(filename, "w+") as message_file:
         message_file.write("------------\n"+ip_addr+"\n"+date+"\n------------\n")
         message_file.write(string)
@@ -81,9 +90,14 @@ def write_file(string, ip_addr, date):
 
 def print_file(filename):
     '''Sends the file to the printer '''
-    default = CUPS_CONNECTION.getDefault()
+    if CUPS_CONNECTION is None:
+        return
 
-    CUPS_CONNECTION.printFile(default, filename, filename, dict())
+    default = CUPS_CONNECTION.getDefault()
+    if default == None:
+        raise IOError("No default printer")
+
+    return CUPS_CONNECTION.printFile(default, filename, filename, dict())
 
 def parse_string(string):
     '''Parses the printable bytes with an attempt to find
@@ -121,7 +135,18 @@ def await_connections():
             data = conn.recv(buffer_size)
 
             formatted_time = time.strftime("%Y-%m-%dT%H:%M:%S")
-            filename = write_file(parse_string(data.decode()), addr[0], formatted_time)
+            received_bytes = conn.recv(buffer_size)
+
+            # If we can't decode whatever the user has sent us, we should close
+            # the connection immediately.  Don't just error out here.
+            try:
+                received_string = received_bytes.decode("utf-8")
+            except UnicodeDecodeError as err:
+                print("Error decoding received bytes %r (%s)" % (received_bytes, err))
+                conn.close()
+                continue
+
+            filename = write_file(parse_string(received_string), addr[0], formatted_time)
             print_file(filename)
 
             conn.send(b"OK")
