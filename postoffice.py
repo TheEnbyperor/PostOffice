@@ -11,7 +11,13 @@ import cups
 
 CONNECTION_LIMIT = 20
 
-CUPS_CONNECTION = cups.Connection()
+try:
+    CUPS_CONNECTION = cups.Connection()
+except RuntimeError as e:
+    print(str(e))
+    print("Cups connection will be mocked.")
+    CUPS_CONNECTION = None
+
 
 PASSPHRASE = sys.stdin.readline()
 
@@ -100,9 +106,14 @@ def write_file_binary(data: bytes, ip_addr: str, date: str) -> str:
 
 def print_file(filename):
     '''Sends the file to the printer '''
-    default = CUPS_CONNECTION.getDefault()
+    if CUPS_CONNECTION is None:
+        return
 
-    CUPS_CONNECTION.printFile(default, filename, filename, dict())
+    default = CUPS_CONNECTION.getDefault()
+    if default == None:
+        raise IOError("No default printer")
+
+    return CUPS_CONNECTION.printFile(default, filename, filename, dict())
 
 def parse_string(string):
     '''Parses the printable bytes with an attempt to find
@@ -158,7 +169,6 @@ def await_connections():
     try:
         while True:
             sock.listen(1)
-
             conn, addr = sock.accept()
 
             if check_rate_limit(addr[0]):
@@ -168,7 +178,13 @@ def await_connections():
                 if image_data is not None:
                     filename = write_file_binary(image_data, addr[0], time.strftime("%d-%m-%Y-%H-%M%p"))
                 else:
-                    filename = write_file(parse_string(data.decode()), addr[0], time.strftime("%d-%m-%Y-%H-%M%p"))
+                    try:
+                        received_string = received_bytes.decode("utf-8")
+                    except UnicodeDecodeError as err:
+                        print("Error decoding received bytes %r (%s)" % (received_bytes, err))
+                        conn.close()
+                        continue
+                    filename = write_file(parse_string(received_string), addr[0], time.strftime("%d-%m-%Y-%H-%M%p"))
 
                 print_file(filename)
 
