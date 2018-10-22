@@ -2,6 +2,9 @@ import sys
 import time
 import os
 import socket
+import traceback
+import argparse
+import getpass
 import gnupg
 import io
 import typing
@@ -10,16 +13,9 @@ from PIL import Image
 import cups
 
 CONNECTION_LIMIT = 20
+CUPS_CONNECTION = None
 
-try:
-    CUPS_CONNECTION = cups.Connection()
-except RuntimeError as e:
-    print(str(e))
-    print("Cups connection will be mocked.")
-    CUPS_CONNECTION = None
-
-
-PASSPHRASE = sys.stdin.readline()
+PASSPHRASE = None
 
 SUPPORTED_IMAGE_FORMATS = ['BMP', 'GIF', 'ICO', 'JPEG', 'PNG', 'TIFF', 'WebP']
 
@@ -200,8 +196,28 @@ def await_connections():
 if __name__ == "__main__":
 
     pid = "/tmp/postoffice.pid"
+    daemon = False
+    cups = False
+    PASSPHRASE = getpass.getpass('Password for GPG: ')
 
-    if "-d" in sys.argv:
+    parser = argparse.ArgumentParser(description='A one way telegram machine!')
+    parser.add_argument('-d', dest='daemon', action='store_true',
+                        help='Daemonize the process')
+    parser.add_argument('-P', '--no-printer', dest='printer',
+                        action='store_false',
+                        help="Don't send files to the printer")
+    args = parser.parse_args(sys.argv[1:])
+
+    if args.printer:
+        try:
+            import cups
+            CUPS_CONNECTION = cups.Connection()
+        except (ImportError, RuntimeError) as e:
+            print('Error initialising CUPS:', file=sys.stderr)
+            print(traceback.format_exc(), file=sys.stderr)
+            print("Cups connection will be mocked.", file=sys.stderr)
+
+    if args.daemon:
         print("Daemonizing....")
         daemon = Daemonize(app="PostOffice", pid=pid, action=await_connections)
         daemon.start()
