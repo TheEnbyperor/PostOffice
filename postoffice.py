@@ -2,21 +2,16 @@ import sys
 import time
 import os
 import socket
+import traceback
+import argparse
+import getpass
 import gnupg
 from daemonize import Daemonize
-import cups
 
 CONNECTION_LIMIT = 20
+CUPS_CONNECTION = None
 
-try:
-    CUPS_CONNECTION = cups.Connection()
-except RuntimeError as e:
-    print(str(e))
-    print("Cups connection will be mocked.")
-    CUPS_CONNECTION = None
-
-
-PASSPHRASE = sys.stdin.readline()
+PASSPHRASE = None
 
 def check_rate_limit(connection_ip):
     """
@@ -132,7 +127,16 @@ def await_connections():
         conn, addr = sock.accept()
 
         if check_rate_limit(addr[0]):
-            data = conn.recv(buffer_size)
+            received_bytes = conn.recv(buffer_size)
+
+            # If we can't decode whatever the user has sent us, we should close
+            # the connection immediately.  Don't just error out here.
+            try:
+                received_string = received_bytes.decode("utf-8")
+            except UnicodeDecodeError as err:
+                print("Error decoding received bytes %r (%s)" % (received_bytes, err))
+                conn.close()
+                continue
 
             formatted_time = time.strftime("%Y-%m-%dT%H:%M:%S")
             received_bytes = conn.recv(buffer_size)
@@ -158,8 +162,28 @@ def await_connections():
 if __name__ == "__main__":
 
     pid = "/tmp/postoffice.pid"
+    daemon = False
+    cups = False
+    PASSPHRASE = getpass.getpass('Password for GPG: ')
 
-    if "-d" in sys.argv:
+    parser = argparse.ArgumentParser(description='A one way telegram machine!')
+    parser.add_argument('-d', dest='daemon', action='store_true',
+                        help='Daemonize the process')
+    parser.add_argument('-P', '--no-printer', dest='printer',
+                        action='store_false',
+                        help="Don't send files to the printer")
+    args = parser.parse_args(sys.argv[1:])
+
+    if args.printer:
+        try:
+            import cups
+            CUPS_CONNECTION = cups.Connection()
+        except (ImportError, RuntimeError) as e:
+            print('Error initialising CUPS:', file=sys.stderr)
+            print(traceback.format_exc(), file=sys.stderr)
+            print("Cups connection will be mocked.", file=sys.stderr)
+
+    if args.daemon:
         print("Daemonizing....")
         daemon = Daemonize(app="PostOffice", pid=pid, action=await_connections)
         daemon.start()
